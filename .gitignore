@@ -1,0 +1,21 @@
+# Исключаем шаблоны и данные
+пример таблицы.xlsx
+шаблон.docx
+raw_materials.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.spec
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+desktop.ini
