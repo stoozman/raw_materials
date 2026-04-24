@@ -110,9 +110,13 @@ def get_status_color(status):
     return STATUS_COLORS.get(status, "FFFFFF")
 
 def _norm_header(s):
+    """Нормализация заголовка столбца Excel (убирает лишние пробелы)"""
     if s is None:
         return ""
-    return str(s).strip()
+    # Убираем все лишние пробелы (множественные пробелы -> один, табы, переносы строк)
+    s = str(s).strip()
+    s = ' '.join(s.split())  # Разбиваем по любым whitespace и соединяем одиночным пробелом
+    return s
 
 def _get_value(record_data, key):
     v = record_data.get(key, "")
@@ -163,7 +167,9 @@ def write_to_excel(record_data, record_id, existing_row=None):
             header_map[name] = c
 
     def set_cell(row, header_name, value):
-        col = header_map.get(header_name)
+        # Нормализуем имя заголовка для поиска (чтобы совпадало с ключами header_map)
+        norm_name = _norm_header(header_name)
+        col = header_map.get(norm_name)
         if not col:
             return
         cell = ws.cell(row=row, column=col, value=value)
@@ -216,8 +222,8 @@ def write_to_excel(record_data, record_id, existing_row=None):
     # 2) Поля формы — пишем только в те столбцы, которые реально есть в Excel
     for field_name in FORM_FIELDS:
         val = _get_value(record_data, field_name)
-        if val != "":
-            set_cell(row_num, field_name, val)
+        val = ensure_dash(val)  # Пустые значения заменяем на прочерк
+        set_cell(row_num, field_name, val)
 
     # 3) Статус текстом не пишем (цвет строки уже отражает статус)
 
