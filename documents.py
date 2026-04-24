@@ -360,22 +360,13 @@ def create_act_document(record_data, act_number):
             set_paragraph_text(para, prefix + str(value))
 
     # Заполняем таблицу показателей: "Наименование показателя | Норма | Факт | Соответствие"
-    # Важно: заполняем только те строки, где реально есть данные (не прочерки),
-    # и не трогаем шапку.
-    indicators_field = _get_value(record_data, "Проверяемые показатели").lower()
-
-    indicator_specs = [
-        ("Внешний вид", "Внешний вид заявлено", "Внешний вид факт", "Соответствие внешнего вида", ["внешн"]),
-        ("Проверяемые показатели", "Норматив по паспорту", "Результат исследований", "Заключение по проверяемым показателям", ["показ"]),
-        ("Плотность измеренная г/см³, насыпная плотность кг/м³", "Плотность по паспорту, кг/м³", "Плотность измеренная г/см³, насыпная плотность кг/м³", "Заключение по плотности", ["плотн"]),
-        ("Влажность измеренная, %", "Влажность по паспорту, %", "Влажность измеренная, %", "Заключение по влажности", ["влажн"]),
-        ("Метталомагнитные примеси, мг/кг", "Металломагнитные примеси по паспорту, мг/кг", "Метталомагнитные примеси, мг/кг", "Заключение по металломагнитным примесям", ["металл", "примес"]),
-    ]
-
+    # Логика: добавляем строку только если заполнено соответствующее поле "факт"
+    
     def find_indicator_table():
         for t in doc.tables:
             try:
-                if len(t.columns) != 4 or len(t.rows) < 1:
+                # Теперь принимаем таблицы с 4-5 столбцами (в шаблоне может быть 5)
+                if len(t.columns) < 4 or len(t.rows) < 1:
                     continue
                 header_cells = [(_norm_header(c.text).lower()) for c in t.rows[0].cells]
                 if any("наименование" in x and "показ" in x for x in header_cells) or any("соответ" in x for x in header_cells):
@@ -391,29 +382,73 @@ def create_act_document(record_data, act_number):
             tbl = table._tbl
             tbl.remove(table.rows[1]._tr)
 
-        for label, norm_key, fact_key, conf_key, hints in indicator_specs:
-            norm_val = _get_value(record_data, norm_key)
-            fact_val = _get_value(record_data, fact_key)
-            conf_val = _get_value(record_data, conf_key)
+        row_num = 1  # Счетчик для нумерации строк
 
-            hinted = False
-            if indicators_field:
-                for h in hints:
-                    if h in indicators_field:
-                        hinted = True
-                        break
-
-            # Заполняем строку, если:
-            # - показатель явно упомянут в "Проверяемые показатели", ИЛИ
-            # - по нему есть хотя бы одно осмысленное значение (не пусто и не "—")
-            if not (hinted or _is_meaningful(norm_val) or _is_meaningful(fact_val) or _is_meaningful(conf_val)):
-                continue
-
+        # 1) Внешний вид - если заполнен "Внешний вид заявлено"
+        vne_vid_zayav = _get_value(record_data, "Внешний вид заявлено")
+        vne_vid_fakt = _get_value(record_data, "Внешний вид факт")
+        vne_vid_sootv = _get_value(record_data, "Соответствие внешнего вида")
+        if _is_meaningful(vne_vid_zayav) or _is_meaningful(vne_vid_fakt):
             row = table.add_row()
-            row.cells[0].text = label
-            row.cells[1].text = norm_val if _is_meaningful(norm_val) else ""
-            row.cells[2].text = fact_val if _is_meaningful(fact_val) else ""
-            row.cells[3].text = conf_val if _is_meaningful(conf_val) else ""
+            row.cells[0].text = str(row_num)  # № п/п
+            row.cells[1].text = "Внешний вид"
+            row.cells[2].text = vne_vid_zayav if _is_meaningful(vne_vid_zayav) else ""
+            row.cells[3].text = vne_vid_fakt if _is_meaningful(vne_vid_fakt) else ""
+            row.cells[4].text = vne_vid_sootv if _is_meaningful(vne_vid_sootv) else ""
+            row_num += 1
+
+        # 2) Проверяемые показатели - если заполнен "Проверяемые показатели"
+        prover_pokaz = _get_value(record_data, "Проверяемые показатели")
+        norm_pasport = _get_value(record_data, "Норматив по паспорту")
+        rezult_issled = _get_value(record_data, "Результат исследований")
+        zakl_prover = _get_value(record_data, "Заключение по проверяемым показателям")
+        if _is_meaningful(prover_pokaz):
+            row = table.add_row()
+            row.cells[0].text = str(row_num)  # № п/п
+            row.cells[1].text = prover_pokaz
+            row.cells[2].text = norm_pasport if _is_meaningful(norm_pasport) else ""
+            row.cells[3].text = rezult_issled if _is_meaningful(rezult_issled) else ""
+            row.cells[4].text = zakl_prover if _is_meaningful(zakl_prover) else ""
+            row_num += 1
+
+        # 3) Плотность - если заполнена "Плотность измеренная"
+        plotn_izm = _get_value(record_data, "Плотность измеренная г/см³, насыпная плотность кг/м³")
+        plotn_pasp = _get_value(record_data, "Плотность по паспорту, кг/м³")
+        zakl_plotn = _get_value(record_data, "Заключение по плотности")
+        if _is_meaningful(plotn_izm):
+            row = table.add_row()
+            row.cells[0].text = str(row_num)  # № п/п
+            row.cells[1].text = "Плотность измеренная г/см³, насыпная плотность кг/м³"
+            row.cells[2].text = plotn_pasp if _is_meaningful(plotn_pasp) else ""
+            row.cells[3].text = plotn_izm
+            row.cells[4].text = zakl_plotn if _is_meaningful(zakl_plotn) else ""
+            row_num += 1
+
+        # 4) Влажность - если заполнена "Влажность измеренная"
+        vlazh_izm = _get_value(record_data, "Влажность измеренная, %")
+        vlazh_pasp = _get_value(record_data, "Влажность по паспорту, %")
+        zakl_vlazh = _get_value(record_data, "Заключение по влажности")
+        if _is_meaningful(vlazh_izm):
+            row = table.add_row()
+            row.cells[0].text = str(row_num)  # № п/п
+            row.cells[1].text = "Влажность, %"
+            row.cells[2].text = vlazh_pasp if _is_meaningful(vlazh_pasp) else ""
+            row.cells[3].text = vlazh_izm
+            row.cells[4].text = zakl_vlazh if _is_meaningful(zakl_vlazh) else ""
+            row_num += 1
+
+        # 5) Металломагнитные примеси - если заполнены "Метталомагнитные примеси"
+        metal_izm = _get_value(record_data, "Метталомагнитные примеси, мг/кг")
+        metal_pasp = _get_value(record_data, "Металломагнитные примеси по паспорту, мг/кг")
+        zakl_metal = _get_value(record_data, "Заключение по металломагнитным примесям")
+        if _is_meaningful(metal_izm):
+            row = table.add_row()
+            row.cells[0].text = str(row_num)  # № п/п
+            row.cells[1].text = "Метталомагнитные примеси, мг/кг"
+            row.cells[2].text = metal_pasp if _is_meaningful(metal_pasp) else ""
+            row.cells[3].text = metal_izm
+            row.cells[4].text = zakl_metal if _is_meaningful(zakl_metal) else ""
+            row_num += 1
 
     # Создаем папку для актов (без разбивки по датам)
     os.makedirs(ACTS_FOLDER, exist_ok=True)
