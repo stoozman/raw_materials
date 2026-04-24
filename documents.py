@@ -225,7 +225,19 @@ def write_to_excel(record_data, record_id, existing_row=None):
         val = ensure_dash(val)  # Пустые значения заменяем на прочерк
         set_cell(row_num, field_name, val)
 
-    # 3) Статус текстом не пишем (цвет строки уже отражает статус)
+    # 3) Номер акта в столбец правее таблицы (пустой столбец без заголовка)
+    if act_number:
+        # Находим последний столбец с заголовком и берем следующий (пустой)
+        if header_map:
+            last_header_col = max(header_map.values())
+            act_col = last_header_col + 1  # Следующий столбец после таблицы
+            cell = ws.cell(row=row_num, column=act_col, value=act_number)
+            cell.fill = fill
+            cell.border = thin_border
+            cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
+            cell.font = Font(name='Arial', size=10)
+
+    # 4) Статус текстом не пишем (цвет строки уже отражает статус)
 
     # Если на листе есть структурированная Excel-таблица (Table),
     # расширяем её диапазон так, чтобы новая строка попадала "внутрь таблицы".
