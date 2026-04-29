@@ -62,10 +62,14 @@ def delete_act_files_for_record(record):
 
     name_part = sanitize_filename_part((record or {}).get("Наименование", ""))
     batch_part = sanitize_filename_part((record or {}).get("№ партии", ""))
+    arrival_date = sanitize_filename_part((record or {}).get("Дата поступления", ""))
     act_part = sanitize_filename_part(act_number)
 
-    # Новый шаблон: Наименование_№партии_№акта.docx
-    new_name = f"{name_part}_{batch_part}_{act_part}.docx"
+    # Новый шаблон с пробелами: "название п. партии от дата прихода акт №"
+    current_name = f"{name_part} п. {batch_part} от {arrival_date} акт № {act_part}.docx"
+
+    # Предыдущий шаблон с №: "название № партии от дата прихода акт №"
+    old_name_with_no = f"{name_part} № {batch_part} от {arrival_date} акт № {act_part}.docx"
 
     # Старый шаблон: Акт_{safe_act_number}_{HH-MM-SS}.docx, где П заменяли на P
     safe_act_number = act_number.replace("П", "P")
@@ -77,8 +81,17 @@ def delete_act_files_for_record(record):
 
             full = os.path.join(root, fn)
 
-            # Точное совпадение нового имени
-            if fn == new_name:
+            # Точное совпадение текущего имени
+            if fn == current_name:
+                try:
+                    os.remove(full)
+                    removed += 1
+                except Exception as e:
+                    failed.append((full, str(e)))
+                continue
+
+            # Точное совпадение предыдущего имени с №
+            if fn == old_name_with_no:
                 try:
                     os.remove(full)
                     removed += 1
@@ -453,11 +466,12 @@ def create_act_document(record_data, act_number):
     # Создаем папку для актов (без разбивки по датам)
     os.makedirs(ACTS_FOLDER, exist_ok=True)
 
-    # Формируем имя файла: Наименование_№партии_№акта.docx
+    # Формируем имя файла: "название № партии от дата прихода акт №"
     name_part = sanitize_filename_part(record_data.get("Наименование", ""))
     batch_part = sanitize_filename_part(record_data.get("№ партии", ""))
+    arrival_date = sanitize_filename_part(record_data.get("Дата поступления", ""))
     act_part = sanitize_filename_part(act_number)
-    filename = f"{name_part}_{batch_part}_{act_part}.docx"
+    filename = f"{name_part} п. {batch_part} от {arrival_date} акт № {act_part}.docx"
     filepath = os.path.join(ACTS_FOLDER, filename)
 
     # Сохраняем документ

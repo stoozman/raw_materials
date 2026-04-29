@@ -9,10 +9,211 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from database import (
     init_database, save_record, get_record_by_id,
     get_all_records, sync_act_number_from_records,
-    delete_record, shift_excel_rows_after
+    delete_record, shift_excel_rows_after, get_unique_values
 )
 from documents import generate_documents, delete_excel_row, delete_act_files_for_record
 from config import FORM_FIELDS, STATUS_COLORS
+
+
+class AutocompleteEntry(tk.Frame):
+    """
+    Кастомное поле ввода с автодополнением.
+    Как в поисковике: печатаешь спокойно, подсказки всплывают в отдельном списке ниже.
+    """
+
+    def __init__(self, parent, get_values_callback, width=50, font=("Arial", 12), **kwargs):
+        super().__init__(parent, **kwargs)
+
+        self.get_values_callback = get_values_callback  # Функция для получения значений
+        self.all_values = []  # Все доступные значения
+
+        # Entry для ввода
+        self.entry = tk.Entry(self, width=width, font=font)
+        self.entry.pack(fill="x", expand=True)
+
+        # Привязка событий
+        self.entry.bind('<KeyRelease>', self._on_key_release)
+        self.entry.bind('<FocusOut>', self._on_focus_out)
+        self.entry.bind('<FocusIn>', self._on_focus_in)
+        self.entry.bind('<Down>', self._on_down)
+        self.entry.bind('<Up>', self._on_up)
+        self.entry.bind('<Return>', self._on_return)
+        self.entry.bind('<Escape>', self._on_escape)
+
+        # Окно со списком (создаётся при необходимости)
+        self.listbox_window = None
+        self.listbox = None
+        self.filtered_values = []
+        self.selected_index = -1
+
+    def get(self):
+        return self.entry.get()
+
+    def set(self, value):
+        self.entry.delete(0, tk.END)
+        self.entry.insert(0, value)
+        self._hide_listbox()
+
+    def delete(self, first, last=None):
+        self.entry.delete(first, last)
+
+    def insert(self, index, string):
+        self.entry.insert(index, string)
+
+    def icursor(self, index):
+        self.entry.icursor(index)
+
+    def selection_range(self, start, end):
+        self.entry.selection_range(start, end)
+
+    def focus_set(self):
+        self.entry.focus_set()
+
+    def winfo_children(self):
+        # Для совместимости с _bind_clipboard_menu
+        return [self.entry]
+
+    def bind(self, sequence, func, add=None):
+        # Пробрасываем bind на entry
+        return self.entry.bind(sequence, func, add)
+
+    def _load_values(self):
+        """Загрузка всех значений из БД"""
+        try:
+            self.all_values = self.get_values_callback()
+        except Exception:
+            self.all_values = []
+
+    def _on_focus_in(self, event):
+        """При получении фокуса загружаем значения"""
+        self._load_values()
+
+    def _on_focus_out(self, event):
+        """При потере фокуса скрываем список с небольшой задержкой
+        (чтобы успеть кликнуть по элементу списка)"""
+        self.after(150, self._hide_listbox)
+
+    def _on_key_release(self, event):
+        """При вводе текста фильтруем и показываем список"""
+        # Игнорируем служебные клавиши
+        if event.keysym in ('Down', 'Up', 'Return', 'Escape', 'Tab',
+                           'Shift_L', 'Shift_R', 'Control_L', 'Control_R',
+                           'Alt_L', 'Alt_R', 'Left', 'Right', 'Home', 'End'):
+            return
+
+        current_text = self.entry.get().lower()
+
+        if not current_text:
+            self._hide_listbox()
+            return
+
+        # Фильтруем значения
+        self.filtered_values = [v for v in self.all_values if current_text in v.lower()]
+        self.filtered_values = self.filtered_values[:20]  # Ограничиваем
+
+        if self.filtered_values:
+            self._show_listbox()
+        else:
+            self._hide_listbox()
+
+    def _show_listbox(self):
+        """Показать выпадающий список под полем ввода"""
+        if self.listbox_window is None:
+            # Создаём окно со списком
+            self.listbox_window = tk.Toplevel(self)
+            self.listbox_window.wm_overrideredirect(True)  # Без рамки
+            self.listbox_window.wm_attributes("-topmost", True)  # Поверх других окон
+
+            self.listbox = tk.Listbox(
+                self.listbox_window,
+                font=self.entry.cget('font'),
+                width=self.entry.cget('width'),
+                height=min(len(self.filtered_values), 10),
+                selectmode=tk.SINGLE,
+                bg='white',
+                relief='solid',
+                borderwidth=1
+            )
+            self.listbox.pack(fill="both", expand=True)
+
+            # Привязка событий к listbox
+            self.listbox.bind('<ButtonRelease-1>', self._on_listbox_click)
+            self.listbox.bind('<Return>', self._on_listbox_click)
+            self.listbox.bind('<Escape>', self._on_escape)
+
+        else:
+            self.listbox.delete(0, tk.END)
+            self.listbox.config(height=min(len(self.filtered_values), 10))
+
+        # Заполняем список
+        self.listbox.delete(0, tk.END)
+        for value in self.filtered_values:
+            self.listbox.insert(tk.END, value)
+
+        self.selected_index = -1
+
+        # Позиционируем окно под Entry
+        x = self.entry.winfo_rootx()
+        y = self.entry.winfo_rooty() + self.entry.winfo_height()
+        width = self.entry.winfo_width()
+        self.listbox_window.geometry(f"{width}x{min(len(self.filtered_values), 10) * 20}+{x}+{y}")
+        self.listbox_window.deiconify()
+
+    def _hide_listbox(self):
+        """Скрыть выпадающий список"""
+        if self.listbox_window:
+            self.listbox_window.withdraw()
+        self.selected_index = -1
+
+    def _on_down(self, event):
+        """Стрелка вниз - перемещаемся по списку"""
+        if self.listbox_window and self.listbox_window.winfo_viewable():
+            self.selected_index = min(self.selected_index + 1, len(self.filtered_values) - 1)
+            self.listbox.selection_clear(0, tk.END)
+            self.listbox.selection_set(self.selected_index)
+            self.listbox.see(self.selected_index)
+            return 'break'
+        return None
+
+    def _on_up(self, event):
+        """Стрелка вверх - перемещаемся по списку"""
+        if self.listbox_window and self.listbox_window.winfo_viewable():
+            self.selected_index = max(self.selected_index - 1, -1)
+            if self.selected_index >= 0:
+                self.listbox.selection_clear(0, tk.END)
+                self.listbox.selection_set(self.selected_index)
+                self.listbox.see(self.selected_index)
+            else:
+                self.listbox.selection_clear(0, tk.END)
+            return 'break'
+        return None
+
+    def _on_return(self, event):
+        """Enter - выбираем текущий элемент или просто продолжаем"""
+        if self.listbox_window and self.listbox_window.winfo_viewable() and self.selected_index >= 0:
+            self._select_value(self.filtered_values[self.selected_index])
+            return 'break'
+        return None
+
+    def _on_escape(self, event):
+        """Escape - закрываем список"""
+        self._hide_listbox()
+        return 'break'
+
+    def _on_listbox_click(self, event):
+        """Клик по элементу списка - выбираем значение"""
+        selection = self.listbox.curselection()
+        if selection:
+            index = selection[0]
+            self._select_value(self.filtered_values[index])
+
+    def _select_value(self, value):
+        """Выбрать значение из списка"""
+        self.entry.delete(0, tk.END)
+        self.entry.insert(0, value)
+        self._hide_listbox()
+        self.entry.icursor(tk.END)  # Курсор в конец
+        self.entry.focus_set()
 
 
 class RecordsListWindow(tk.Toplevel):
@@ -193,6 +394,35 @@ class RawMaterialsApp(tk.Tk):
         widget.bind("<Button-3>", show_menu)  # Windows
         widget.bind("<Control-Button-1>", show_menu)  # на всякий случай
 
+    def _load_autocomplete_values(self, field_name, widget):
+        """Загрузка значений автодополнения из БД при фокусе"""
+        try:
+            values = get_unique_values(field_name)
+            widget['values'] = values
+        except Exception:
+            pass  # Игнорируем ошибки, просто не показываем подсказки
+
+    def _filter_autocomplete_values(self, field_name, widget):
+        """Фильтрация значений автодополнения при вводе текста"""
+        try:
+            current_text = widget.get().lower()
+            if not current_text:
+                # Если текст пустой, показываем все значения
+                values = get_unique_values(field_name)
+                widget['values'] = values
+                return
+
+            # Получаем все значения и фильтруем по введенному тексту
+            all_values = get_unique_values(field_name, limit=100)
+            filtered = [v for v in all_values if current_text in v.lower()]
+            widget['values'] = filtered[:50]  # Ограничиваем количество
+
+            # Открываем dropdown для показа подсказок (не мешает печатать)
+            if filtered and widget == widget.focus_get():
+                widget.event_generate('<Down>')
+        except Exception:
+            pass  # Игнорируем ошибки
+
     def create_widgets(self):
         """Создание элементов интерфейса"""
         # Заголовок
@@ -252,6 +482,16 @@ class RawMaterialsApp(tk.Tk):
         }
         choice_values = ["—", "соответствует", "не соответствует"]
 
+        # Поля с автодополнением (часто повторяющиеся значения)
+        autocomplete_fields = {
+            "Наименование",
+            "Поставщик",
+            "Производитель",
+            "Внешний вид заявлено",
+            "Внешний вид факт",
+            "ФИО",
+        }
+
         # Создаем поля ввода
         for i, field_name in enumerate(FORM_FIELDS):
             row_frame = tk.Frame(self.frame_form)
@@ -272,6 +512,14 @@ class RawMaterialsApp(tk.Tk):
                     width=48,
                 )
                 entry.set("—")
+            elif field_name in autocomplete_fields:
+                # Кастомное поле с автодополнением (как в поисковике)
+                entry = AutocompleteEntry(
+                    row_frame,
+                    get_values_callback=lambda fn=field_name: get_unique_values(fn),
+                    width=48,
+                    font=("Arial", 12),
+                )
             else:
                 entry = tk.Entry(row_frame, width=50, font=("Arial", 12))
 

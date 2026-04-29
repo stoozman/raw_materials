@@ -396,3 +396,65 @@ def sync_act_number_from_records():
         conn.commit()
 
     conn.close()
+
+
+# Mapping имён полей формы на имена столбцов БД
+FIELD_TO_COLUMN = {
+    "Наименование": "name",
+    "Внешний вид заявлено": "appearance_claimed",
+    "Внешний вид факт": "appearance_actual",
+    "Соответствие внешнего вида": "appearance_match",
+    "Поставщик": "supplier",
+    "Производитель": "manufacturer",
+    "Дата поступления": "arrival_date",
+    "Дата проверки": "check_date",
+    "№ партии": "batch_number",
+    "Дата изготовления": "manufacture_date",
+    "Срок годности": "expiry_date",
+    "Фактическая масса (кг)": "actual_mass",
+    "Проверяемые показатели": "test_indicators",
+    "Результат исследований": "research_result",
+    "Норматив по паспорту": "passport_norm",
+    "Заключение по проверяемым показателям": "test_conclusion",
+    "Плотность измеренная г/см³, насыпная плотность кг/м³": "density_measured",
+    "Плотность по паспорту, кг/м³": "density_passport",
+    "Заключение по плотности": "density_conclusion",
+    "Влажность измеренная, %": "humidity_measured",
+    "Влажность по паспорту, %": "humidity_passport",
+    "Заключение по влажности": "humidity_conclusion",
+    "Метталомагнитные примеси, мг/кг": "metal_impurities_measured",
+    "Металломагнитные примеси по паспорту, мг/кг": "metal_impurities_passport",
+    "Заключение по металломагнитным примесям": "metal_impurities_conclusion",
+    "ФИО": "fio",
+    "Коментарии": "comments",
+}
+
+
+def get_unique_values(field_name, limit=50):
+    """
+    Получение уникальных значений для поля формы из базы данных.
+
+    Args:
+        field_name: имя поля формы (например, "Наименование")
+        limit: максимальное количество значений
+
+    Returns:
+        list: список уникальных непустых значений
+    """
+    column = FIELD_TO_COLUMN.get(field_name)
+    if not column:
+        return []
+
+    conn = sqlite3.connect(DATABASE_FILE)
+    cursor = conn.cursor()
+
+    cursor.execute(f'''
+        SELECT DISTINCT {column} FROM raw_materials
+        WHERE {column} IS NOT NULL AND TRIM({column}) != ''
+        ORDER BY {column}
+        LIMIT ?
+    ''', (limit,))
+
+    results = [row[0] for row in cursor.fetchall()]
+    conn.close()
+    return results
