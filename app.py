@@ -40,6 +40,13 @@ class AutocompleteEntry(tk.Frame):
         self.entry.bind('<Return>', self._on_return)
         self.entry.bind('<Escape>', self._on_escape)
 
+        # Клавиатурные сокращения для копирования/вставки
+        self.entry.bind('<Control-a>', self._on_select_all)
+        self.entry.bind('<Control-A>', self._on_select_all)
+
+        # Контекстное меню (ПКМ)
+        self._create_context_menu()
+
         # Окно со списком (создаётся при необходимости)
         self.listbox_window = None
         self.listbox = None
@@ -215,6 +222,85 @@ class AutocompleteEntry(tk.Frame):
         self.entry.icursor(tk.END)  # Курсор в конец
         self.entry.focus_set()
 
+    def _on_select_all(self, event):
+        """Ctrl+A - выделить всё"""
+        self.entry.selection_range(0, tk.END)
+        self.entry.icursor(tk.END)
+        return 'break'
+
+    def _create_context_menu(self):
+        """Создать контекстное меню для копирования/вставки"""
+        self.context_menu = tk.Menu(self, tearoff=0)
+        self.context_menu.add_command(label="Вырезать", command=self._do_cut)
+        self.context_menu.add_command(label="Копировать", command=self._do_copy)
+        self.context_menu.add_command(label="Вставить", command=self._do_paste)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Выделить всё", command=self._do_select_all)
+
+        # Привязываем к entry
+        self.entry.bind('<Button-3>', self._show_context_menu)  # Правая кнопка мыши
+        self.entry.bind('<Control-Button-1>', self._show_context_menu)  # Ctrl+ЛКМ на всякий случай
+
+    def _show_context_menu(self, event):
+        """Показать контекстное меню"""
+        try:
+            self.entry.focus_set()
+            self.context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            try:
+                self.context_menu.grab_release()
+            except Exception:
+                pass
+
+    def _do_cut(self):
+        """Вырезать - копируем в буфер и удаляем выделенное"""
+        try:
+            if self.entry.selection_present():
+                selected = self.entry.selection_get()
+                self.clipboard_clear()
+                self.clipboard_append(selected)
+                self.entry.delete(tk.SEL_FIRST, tk.SEL_LAST)
+        except Exception:
+            pass
+
+    def _do_copy(self):
+        """Копировать - копируем выделенное в буфер"""
+        try:
+            if self.entry.selection_present():
+                selected = self.entry.selection_get()
+                self.clipboard_clear()
+                self.clipboard_append(selected)
+        except Exception:
+            pass
+
+    def _do_paste(self):
+        """Вставить - вставляем из буфера"""
+        try:
+            text = self.selection_get(selection="CLIPBOARD")
+            if text:
+                # Если есть выделение - заменяем его
+                if self.entry.selection_present():
+                    self.entry.delete(tk.SEL_FIRST, tk.SEL_LAST)
+                # Вставляем в позицию курсора
+                cursor_pos = self.entry.index(tk.INSERT)
+                self.entry.insert(cursor_pos, text)
+        except Exception:
+            # Если не получилось из clipboard, пробуем через строку
+            try:
+                text = self.clipboard_get()
+                if text:
+                    if self.entry.selection_present():
+                        self.entry.delete(tk.SEL_FIRST, tk.SEL_LAST)
+                    cursor_pos = self.entry.index(tk.INSERT)
+                    self.entry.insert(cursor_pos, text)
+            except Exception:
+                pass
+
+    def _do_select_all(self):
+        """Выделить всё через меню"""
+        self.entry.selection_range(0, tk.END)
+        self.entry.icursor(tk.END)
+
 
 class RecordsListWindow(tk.Toplevel):
     """Окно списка записей для выбора"""
@@ -343,35 +429,69 @@ class RawMaterialsApp(tk.Tk):
     def _bind_clipboard_menu(self, widget):
         """
         Контекстное меню (ПКМ) для копирования/вставки в полях.
+        Работает с tk.Entry, ttk.Combobox и AutocompleteEntry.
         """
         menu = tk.Menu(self, tearoff=0)
 
+        def get_widget():
+            # Для AutocompleteEntry берем внутренний entry
+            if hasattr(widget, 'entry'):
+                return widget.entry
+            return widget
+
         def do_cut():
             try:
-                widget.event_generate("<<Cut>>")
+                w = get_widget()
+                # Проверяем есть ли выделение
+                try:
+                    if w.selection_present():
+                        selected = w.selection_get()
+                        self.clipboard_clear()
+                        self.clipboard_append(selected)
+                        w.delete(tk.SEL_FIRST, tk.SEL_LAST)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
         def do_copy():
             try:
-                widget.event_generate("<<Copy>>")
-            except Exception:
+                w = get_widget()
                 try:
-                    self.clipboard_clear()
-                    self.clipboard_append(widget.get())
+                    if w.selection_present():
+                        selected = w.selection_get()
+                        self.clipboard_clear()
+                        self.clipboard_append(selected)
                 except Exception:
                     pass
+            except Exception:
+                pass
 
         def do_paste():
             try:
-                widget.event_generate("<<Paste>>")
+                w = get_widget()
+                try:
+                    text = self.clipboard_get()
+                    if text:
+                        # Если есть выделение - заменяем его
+                        try:
+                            if w.selection_present():
+                                w.delete(tk.SEL_FIRST, tk.SEL_LAST)
+                        except Exception:
+                            pass
+                        # Вставляем в позицию курсора
+                        cursor_pos = w.index(tk.INSERT)
+                        w.insert(cursor_pos, text)
+                except Exception:
+                    pass
             except Exception:
                 pass
 
         def do_select_all():
             try:
-                widget.selection_range(0, "end")
-                widget.icursor("end")
+                w = get_widget()
+                w.selection_range(0, tk.END)
+                w.icursor(tk.END)
             except Exception:
                 pass
 
@@ -391,8 +511,17 @@ class RawMaterialsApp(tk.Tk):
                 except Exception:
                     pass
 
-        widget.bind("<Button-3>", show_menu)  # Windows
-        widget.bind("<Control-Button-1>", show_menu)  # на всякий случай
+        # Привязываем к виджету (используем entry для AutocompleteEntry)
+        target_widget = get_widget()
+        target_widget.bind("<Button-3>", show_menu)  # Windows ПКМ
+        target_widget.bind("<Control-Button-1>", show_menu)  # Ctrl+ЛКМ на всякий случай
+
+        # Добавляем клавиатурные сокращения Ctrl+A для всех полей
+        def on_select_all(event):
+            do_select_all()
+            return 'break'
+        target_widget.bind('<Control-a>', on_select_all)
+        target_widget.bind('<Control-A>', on_select_all)
 
     def _load_autocomplete_values(self, field_name, widget):
         """Загрузка значений автодополнения из БД при фокусе"""

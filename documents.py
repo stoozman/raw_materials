@@ -189,7 +189,7 @@ def write_to_excel(record_data, record_id, existing_row=None):
         cell.fill = fill
         cell.border = thin_border
         cell.alignment = Alignment(horizontal='left', vertical='center', wrap_text=True)
-        cell.font = Font(name='Arial', size=10)
+        cell.font = Font(name='Calibri', size=10)
 
     def is_row_empty(r, cols_to_check):
         for c in cols_to_check:
@@ -368,7 +368,11 @@ def create_act_document(record_data, act_number):
                 prefix = old_text.split(":")[0] + ": "
             else:
                 prefix = old_text + ": " if old_text else ""
-            
+
+            # Специальная обработка для поля "Фактическая масса (кг)"
+            if field_name == "Фактическая масса (кг)":
+                prefix = "Фактическая масса, кг: "
+
             # Устанавливаем новый текст
             set_paragraph_text(para, prefix + str(value))
 
